@@ -15,19 +15,26 @@
 package ocgrpc
 
 import (
+	"context"
+	"encoding/hex"
 	"strings"
 
 	"google.golang.org/grpc/codes"
 
-	"context"
-	"go.opencensus.io/trace"
-	"go.opencensus.io/trace/propagation"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
+
+	"go.opencensus.io/trace"
+	"go.opencensus.io/trace/propagation"
 )
 
-const traceContextKey = "grpc-trace-bin"
+const (
+	traceContextKey = "grpc-trace-bin"
+	 b3TrackIDHeader = "x-b3-traceid"
+	b3SpanIDHeader  = "x-b3-spanid"
+	b3SampledHeader = "x-b3-sampled"
+)
 
 // TagRPC creates a new trace span for the client side of the RPC.
 //
@@ -39,8 +46,18 @@ func (c *ClientHandler) traceTagRPC(ctx context.Context, rti *stats.RPCTagInfo) 
 	ctx, span := trace.StartSpan(ctx, name,
 		trace.WithSampler(c.StartOptions.Sampler),
 		trace.WithSpanKind(trace.SpanKindClient)) // span is ended by traceHandleRPC
-	traceContextBinary := propagation.Binary(span.SpanContext())
-	return metadata.AppendToOutgoingContext(ctx, traceContextKey, string(traceContextBinary))
+		spanCtx := span.SpanContext()
+	traceContextBinary := propagation.Binary(spanCtx)
+	sampled := "0"
+	if spanCtx.IsSampled() {
+		sampled = "1"
+	}
+	return metadata.AppendToOutgoingContext(ctx,
+		traceContextKey, string(traceContextBinary),
+		b3TrackIDHeader, hex.EncodeToString(spanCtx.TraceID[:]),
+		b3SpanIDHeader, hex.EncodeToString(spanCtx.SpanID[:]),
+		b3SampledHeader, sampled,
+	)
 }
 
 // TagRPC creates a new trace span for the server side of the RPC.
